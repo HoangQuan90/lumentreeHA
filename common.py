@@ -24,7 +24,7 @@ def build_device_info(
     return DeviceInfo(
         identifiers={(DOMAIN, device_sn)},
         name=device_name,
-        manufacturer="Ngoc Quan)",
+        manufacturer="Ngoc Quan",
         model=device_api_info.get("deviceType"),
         sw_version=device_api_info.get("controllerVersion"),
         hw_version=device_api_info.get("liquidCrystalVersion"),
