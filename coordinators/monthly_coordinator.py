@@ -1,4 +1,4 @@
-"""Monthly coordinator: ensure month aggregates via cache and on-demand fill."""
+"""Monthly coordinator: use the official Lumentree monthly API directly."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from homeassistant.util import dt as dt_util
 from ..const import (
     DEFAULT_MONTHLY_INTERVAL,
     DEFAULT_TARIFF_VND_PER_KWH,
-    DOMAIN,
     KEY_MONTHLY_CHARGE_KWH,
     KEY_MONTHLY_DISCHARGE_KWH,
     KEY_MONTHLY_ESSENTIAL_KWH,
@@ -26,13 +25,20 @@ from ..const import (
     KEY_MONTHLY_TOTAL_LOAD_KWH,
     get_timezone,
 )
-from ..services import cache as cache_io
 from ..services.aggregator import StatsAggregator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
+class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Expose monthly statistics from the vendor's getMonthData endpoint.
+
+    The monthly API is the single source of truth here.  No daily cache,
+    daily coordinator, or local aggregation is added to the API values, so the
+    current day is not double-counted and the result matches Lumentree's own
+    monthly statistics.
+    """
+
     __slots__ = ("aggregator", "device_sn", "_entry_id", "_last_month")
 
     def __init__(
@@ -45,7 +51,8 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self.aggregator = aggregator
         self.device_sn = device_sn
         self._entry_id = entry_id
-        self._last_month: tuple[int, int] | None = None  # (year, month)
+        self._last_month: tuple[int, int] | None = None
+
         super().__init__(
             hass,
             _LOGGER,
@@ -54,161 +61,118 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
             always_update=False,
         )
 
+    @staticmethod
+    def _sum(values: Any) -> float:
+        """Sum a vendor array while ignoring malformed values."""
+        if not isinstance(values, list):
+            return 0.0
+        total = 0.0
+        for value in values:
+            try:
+                total += float(value)
+            except (TypeError, ValueError):
+                continue
+        return total
+
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             timezone = get_timezone(self.hass)
             now = dt_util.now(timezone)
             year = now.year
             month = now.month
+            device_id = self.aggregator._device_id
 
-            # Check if month has changed - if so, finalize previous month's data
-            if self._last_month is not None and self._last_month != (year, month):
-                prev_year, prev_month = self._last_month
-                await self._finalize_previous_month(prev_year, prev_month)
-
-            # Load cache to build daily arrays (auto-recompute if needed)
-            cache = await self.hass.async_add_executor_job(
-                cache_io.load_year, self.aggregator._device_id, year, True
+            _LOGGER.debug(
+                "Monthly coordinator: fetching official getMonthData for %s @ %04d-%02d",
+                device_id,
+                year,
+                month,
             )
 
-            _LOGGER.info(f"Monthly coordinator: Using device_id: {self.aggregator._device_id}")
-            _LOGGER.info(
-                f"Monthly coordinator: Cache loaded for {year}: {len(cache.get('daily', {}))} days"
-            )
-            _LOGGER.info(
-                f"Monthly coordinator: Cache sample dates: {list(cache.get('daily', {}).keys())[:5]}"
-            )
-
-            # Check if we have data for current month
-            month_dates = [f"{year}-{month:02d}-{day:02d}" for day in range(1, 32)]
-            month_data_count = sum(1 for date in month_dates if date in cache.get("daily", {}))
-            _LOGGER.info(
-                f"Monthly coordinator: Found {month_data_count} days with data for {year}-{month:02d}"
+            # IMPORTANT: direct official Lumentree API only.
+            # Do not merge cache/current-day data here.
+            api_data = await self.aggregator._api.get_month_data(
+                device_id,
+                year,
+                month,
             )
 
-            # Build daily arrays for the current month (1-31)
             days_in_month = calendar.monthrange(year, month)[1]
-            daily_pv = []
-            daily_charge = []
-            daily_discharge = []
-            daily_grid = []
-            daily_load = []
-            daily_essential = []
-            daily_total_load = []
-            daily_saved_kwh = []
-            daily_savings_vnd = []
 
-            # Get today's data if we're in the current month
-            today = now.date()
-            today_day = today.day
-            today_data_from_coord = None
-            if today.year == year and today.month == month:
-                today_data_from_coord = self._get_today_data_from_daily_coord()
+            daily_pv = list(api_data.get("pv", []))
+            daily_grid = list(api_data.get("grid", []))
+            daily_load = list(api_data.get("homeload", []))
+            daily_essential = list(api_data.get("essentialLoad", []))
+            daily_charge = list(api_data.get("bat", []))
+            daily_discharge = list(api_data.get("batF", []))
 
-            for day in range(1, days_in_month + 1):
-                date_str = f"{year}-{month:02d}-{day:02d}"
+            # The API returns one value per day.  Pad missing future days with
+            # zero so chart/entity consumers keep the existing 1..N shape.
+            def pad(values: list[Any]) -> list[float]:
+                result: list[float] = []
+                for index in range(days_in_month):
+                    if index < len(values):
+                        try:
+                            result.append(float(values[index]))
+                        except (TypeError, ValueError):
+                            result.append(0.0)
+                    else:
+                        result.append(0.0)
+                return result
 
-                # If this is today and we have real-time data, use it
-                if day == today_day and today_data_from_coord:
-                    daily_pv.append(float(today_data_from_coord.get("pv_today") or 0.0))
-                    daily_charge.append(float(today_data_from_coord.get("charge_today") or 0.0))
-                    daily_discharge.append(
-                        float(today_data_from_coord.get("discharge_today") or 0.0)
-                    )
-                    daily_grid.append(float(today_data_from_coord.get("grid_in_today") or 0.0))
-                    load_val = float(today_data_from_coord.get("load_today") or 0.0)
-                    essential_val = float(today_data_from_coord.get("essential_today") or 0.0)
-                    daily_load.append(load_val)
-                    daily_essential.append(essential_val)
-                    daily_total_load.append(load_val + essential_val)
-                    # Calculate savings for today
-                    saved_kwh_today = max(
-                        0.0,
-                        (load_val + essential_val)
-                        - float(today_data_from_coord.get("grid_in_today") or 0.0),
-                    )
-                    daily_saved_kwh.append(saved_kwh_today)
-                    daily_savings_vnd.append(saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH)
-                else:
-                    # Use cached data for past days
-                    day_data = cache.get("daily", {}).get(date_str, {})
-                    daily_pv.append(float(day_data.get("pv", 0.0)))
-                    daily_charge.append(float(day_data.get("charge", 0.0)))
-                    daily_discharge.append(float(day_data.get("discharge", 0.0)))
-                    daily_grid.append(float(day_data.get("grid", 0.0)))
-                    load_val = float(day_data.get("load", 0.0))
-                    essential_val = float(day_data.get("essential", 0.0))
-                    daily_load.append(load_val)
-                    daily_essential.append(essential_val)
-                    daily_total_load.append(
-                        float(day_data.get("total_load", load_val + essential_val))
-                    )
-                    daily_saved_kwh.append(float(day_data.get("saved_kwh", 0.0)))
-                    daily_savings_vnd.append(float(day_data.get("savings_vnd", 0.0)))
+            daily_pv = pad(daily_pv)
+            daily_grid = pad(daily_grid)
+            daily_load = pad(daily_load)
+            daily_essential = pad(daily_essential)
+            daily_charge = pad(daily_charge)
+            daily_discharge = pad(daily_discharge)
 
-            _LOGGER.info(
-                f"Monthly coordinator: Daily arrays built - PV first 5: {daily_pv[:5]}, Charge first 5: {daily_charge[:5]}"
-            )
-            _LOGGER.info(
-                f"Monthly coordinator: Daily arrays built - PV last 5: {daily_pv[-5:]}, Charge last 5: {daily_charge[-5:]}"
-            )
+            daily_total_load = [
+                load + essential
+                for load, essential in zip(daily_load, daily_essential, strict=False)
+            ]
+            daily_saved_kwh = [
+                max(0.0, total - grid)
+                for total, grid in zip(daily_total_load, daily_grid, strict=False)
+            ]
+            daily_savings_vnd = [
+                saved * DEFAULT_TARIFF_VND_PER_KWH for saved in daily_saved_kwh
+            ]
 
-            # Summarize the month from cache (các ngày đã chốt)
-            m = await self.aggregator.summarize_month(year, month)
+            monthly_pv = self._sum(daily_pv)
+            monthly_grid = self._sum(daily_grid)
+            monthly_load = self._sum(daily_load)
+            monthly_essential = self._sum(daily_essential)
+            monthly_total_load = self._sum(daily_total_load)
+            monthly_charge = self._sum(daily_charge)
+            monthly_discharge = self._sum(daily_discharge)
+            monthly_saved_kwh = self._sum(daily_saved_kwh)
+            monthly_savings_vnd = monthly_saved_kwh * DEFAULT_TARIFF_VND_PER_KWH
 
-            # Add today's data if we're in the current month (cộng dồn ngày hiện tại)
-            today = now.date()
-            if today.year == year and today.month == month:
-                # Get today's data from daily coordinator (real-time data)
-                today_data = self._get_today_data_from_daily_coord()
-                if today_data:
-                    m["pv"] = m.get("pv", 0.0) + float(today_data.get("pv_today") or 0.0)
-                    m["grid"] = m.get("grid", 0.0) + float(today_data.get("grid_in_today") or 0.0)
-                    load_val = float(today_data.get("load_today") or 0.0)
-                    essential_val = float(today_data.get("essential_today") or 0.0)
-                    m["load"] = m.get("load", 0.0) + load_val
-                    m["essential"] = m.get("essential", 0.0) + essential_val
-                    m["total_load"] = m.get("total_load", 0.0) + (load_val + essential_val)
-                    m["charge"] = m.get("charge", 0.0) + float(
-                        today_data.get("charge_today") or 0.0
-                    )
-                    m["discharge"] = m.get("discharge", 0.0) + float(
-                        today_data.get("discharge_today") or 0.0
-                    )
-                    # Add today's savings
-                    saved_kwh_today = float(
-                        today_data.get("saved_kwh")
-                        or max(
-                            0.0,
-                            (load_val + essential_val)
-                            - float(today_data.get("grid_in_today") or 0.0),
-                        )
-                    )
-                    m["saved_kwh"] = m.get("saved_kwh", 0.0) + saved_kwh_today
-                    m["savings_vnd"] = m.get("savings_vnd", 0.0) + float(
-                        today_data.get("savings_vnd")
-                        or (saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH)
-                    )
-
-            _LOGGER.info(
-                f"Monthly coordinator: Summary for {year}-{month:02d} (with today): PV={m.get('pv', 0.0)}, Charge={m.get('charge', 0.0)}"
-            )
-
-            # Update last_month tracking
             self._last_month = (year, month)
 
+            _LOGGER.debug(
+                "Monthly API result %s-%02d: PV=%.3f grid=%.3f load=%.3f "
+                "charge=%.3f discharge=%.3f",
+                year,
+                month,
+                monthly_pv,
+                monthly_grid,
+                monthly_load,
+                monthly_charge,
+                monthly_discharge,
+            )
+
             return {
-                # Monthly totals (including today if current month)
-                KEY_MONTHLY_PV_KWH: m.get("pv", 0.0),
-                KEY_MONTHLY_GRID_IN_KWH: m.get("grid", 0.0),
-                KEY_MONTHLY_LOAD_KWH: m.get("load", 0.0),
-                KEY_MONTHLY_ESSENTIAL_KWH: m.get("essential", 0.0),
-                KEY_MONTHLY_TOTAL_LOAD_KWH: m.get("total_load", 0.0),
-                KEY_MONTHLY_CHARGE_KWH: m.get("charge", 0.0),
-                KEY_MONTHLY_DISCHARGE_KWH: m.get("discharge", 0.0),
-                KEY_MONTHLY_SAVED_KWH: m.get("saved_kwh", 0.0),
-                KEY_MONTHLY_SAVINGS_VND: m.get("savings_vnd", 0.0),
-                # Daily arrays for charting
+                KEY_MONTHLY_PV_KWH: monthly_pv,
+                KEY_MONTHLY_GRID_IN_KWH: monthly_grid,
+                KEY_MONTHLY_LOAD_KWH: monthly_load,
+                KEY_MONTHLY_ESSENTIAL_KWH: monthly_essential,
+                KEY_MONTHLY_TOTAL_LOAD_KWH: monthly_total_load,
+                KEY_MONTHLY_CHARGE_KWH: monthly_charge,
+                KEY_MONTHLY_DISCHARGE_KWH: monthly_discharge,
+                KEY_MONTHLY_SAVED_KWH: monthly_saved_kwh,
+                KEY_MONTHLY_SAVINGS_VND: monthly_savings_vnd,
                 "daily_pv": daily_pv,
                 "daily_charge": daily_charge,
                 "daily_discharge": daily_discharge,
@@ -222,50 +186,9 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 "year": year,
                 "month": month,
             }
+
         except TimeoutError as err:
             raise UpdateFailed("Timeout monthly") from err
         except Exception as err:
             _LOGGER.exception("Unexpected monthly update error")
             raise UpdateFailed(f"Unexpected error: {err}") from err
-
-    async def _finalize_previous_month(self, previous_year: int, previous_month: int) -> None:
-        """Finalize previous month's data by ensuring cache is up-to-date."""
-        try:
-            _LOGGER.info(f"Month changed: Finalizing data for {previous_year}-{previous_month:02d}")
-
-            # Load, recompute and save in one executor job.  recompute_aggregates
-            # walks the whole daily map of the year, so running it on the event
-            # loop blocks every entity update for the duration.  The load and
-            # save around it were already offloaded.
-            def _finalize() -> None:
-                c = cache_io.load_year(
-                    self.aggregator._device_id, previous_year, auto_recompute=False
-                )
-                cache_io.save_year(
-                    self.aggregator._device_id,
-                    previous_year,
-                    cache_io.recompute_aggregates(c),
-                )
-
-            await self.hass.async_add_executor_job(_finalize)
-
-            _LOGGER.info(f"Finalized data for month {previous_year}-{previous_month:02d}")
-        except Exception as err:
-            _LOGGER.warning(f"Failed to finalize month {previous_year}-{previous_month:02d}: {err}")
-            # Don't raise - this is a best-effort operation
-
-    def _get_today_data_from_daily_coord(self) -> dict[str, Any] | None:
-        """Get today's real-time data from daily coordinator."""
-        try:
-            if not self._entry_id:
-                return None
-
-            domain_data = self.hass.data.get(DOMAIN, {})
-            entry_data = domain_data.get(self._entry_id, {})
-            daily_coord = entry_data.get("daily_coordinator")
-
-            if daily_coord and daily_coord.data:
-                return daily_coord.data
-            return None
-        except Exception:
-            return None
