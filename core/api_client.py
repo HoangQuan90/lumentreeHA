@@ -708,6 +708,7 @@ class LumentreeHttpApiClient:
                 "homeload",
                 "essentialLoad",
                 "bat",
+                "batF",
             ):
                 item = data.get(key)
                 if isinstance(item, dict):
@@ -734,6 +735,7 @@ class LumentreeHttpApiClient:
                 "homeload": [],
                 "essentialLoad": [],
                 "bat": [],
+                "batF": [],
             }
 
     # ------------------------------------------------------------------
