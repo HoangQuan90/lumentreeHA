@@ -51,92 +51,185 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if self._api_client is None:
             _LOGGER.debug("API client is None, creating new instance")
+
             try:
                 session = async_get_clientsession(self.hass)
-                _LOGGER.debug("aiohttp client session obtained: %s", repr(session))
+                _LOGGER.debug(
+                    "aiohttp client session obtained: %s",
+                    repr(session),
+                )
 
                 if session is None:
-                    _LOGGER.error("Failed to get aiohttp client session! (session is None)")
+                    _LOGGER.error(
+                        "Failed to get aiohttp client session! "
+                        "(session is None)"
+                    )
                     raise ApiException("Could not get client session")
 
-                # Create instance
                 try:
-                    _LOGGER.debug("Creating LumentreeApiClient with session")
+                    _LOGGER.debug(
+                        "Creating LumentreeApiClient with session"
+                    )
+
                     self._api_client = LumentreeHttpApiClient(session)
-                    _LOGGER.debug("Created new API client instance: %s", type(self._api_client))
+
+                    _LOGGER.debug(
+                        "Created new API client instance: %s",
+                        type(self._api_client),
+                    )
+
                 except Exception as create_exc:
-                    _LOGGER.exception("Error creating LumentreeApiClient instance: %s", create_exc)
-                    raise ApiException("Failed to create API client instance") from create_exc
+                    _LOGGER.exception(
+                        "Error creating LumentreeApiClient instance: %s",
+                        create_exc,
+                    )
+                    raise ApiException(
+                        "Failed to create API client instance"
+                    ) from create_exc
 
             except Exception as session_exc:
-                _LOGGER.error(f"Failed to initialize API client: {session_exc}")
+                _LOGGER.error(
+                    "Failed to initialize API client: %s",
+                    session_exc,
+                )
                 raise ApiException(
                     f"API Client Initialization failed: {session_exc}"
                 ) from session_exc
+
         else:
-            _LOGGER.debug(f"Reusing existing API client instance: {type(self._api_client)}")
+            _LOGGER.debug(
+                "Reusing existing API client instance: %s",
+                type(self._api_client),
+            )
 
-        # Check again before setting token and return
         if self._api_client is None:
-            _LOGGER.critical("API client is unexpectedly None after initialization attempt!")
-            raise ApiException("API client is None after creation attempt")
+            _LOGGER.critical(
+                "API client is unexpectedly None after initialization attempt!"
+            )
+            raise ApiException(
+                "API client is None after creation attempt"
+            )
 
-        # Assign token if available
         if self._http_token:
             if hasattr(self._api_client, "set_token"):
                 try:
                     self._api_client.set_token(self._http_token)
-                    masked = (self._http_token[:6] + "...") if len(self._http_token) > 6 else "***"
-                    _LOGGER.debug("Set token on API client (masked): %s", masked)
+
+                    masked = (
+                        self._http_token[:6] + "..."
+                        if len(self._http_token) > 6
+                        else "***"
+                    )
+
+                    _LOGGER.debug(
+                        "Set token on API client (masked): %s",
+                        masked,
+                    )
+
                 except Exception as token_exc:
-                    _LOGGER.exception("Failed to set token on API client: %s", token_exc)
-                    raise ApiException("Failed to set token on API client") from token_exc
+                    _LOGGER.exception(
+                        "Failed to set token on API client: %s",
+                        token_exc,
+                    )
+                    raise ApiException(
+                        "Failed to set token on API client"
+                    ) from token_exc
+
             else:
-                _LOGGER.warning("API client missing 'set_token' method")
+                _LOGGER.warning(
+                    "API client missing 'set_token' method"
+                )
 
         return self._api_client
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_user(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
         api: LumentreeHttpApiClient | None = None
 
         if user_input is not None:
-            self._device_id_input = user_input[CONF_DEVICE_ID].strip()
+            self._device_id_input = user_input[
+                CONF_DEVICE_ID
+            ].strip()
 
             try:
-                # Get API client
                 api = await self._get_api_client()
-                _LOGGER.info("Authenticating with Device ID: %s", self._device_id_input)
-                _LOGGER.debug("Using API client instance: %s", type(api))
 
-                token = await api.authenticate_device(self._device_id_input)
+                _LOGGER.info(
+                    "Authenticating with Device ID: %s",
+                    self._device_id_input,
+                )
+
+                _LOGGER.debug(
+                    "Using API client instance: %s",
+                    type(api),
+                )
+
+                token = await api.authenticate_device(
+                    self._device_id_input
+                )
+
                 self._http_token = token
 
-                masked_token = (token[:6] + "...") if token and len(token) > 6 else "***"
+                masked_token = (
+                    token[:6] + "..."
+                    if token and len(token) > 6
+                    else "***"
+                )
+
                 _LOGGER.info(
-                    "Auth success for %s (token masked: %s)", self._device_id_input, masked_token
+                    "Auth success for %s (token masked: %s)",
+                    self._device_id_input,
+                    masked_token,
                 )
 
                 return await self.async_step_confirm_device()
 
             except AuthException as exc:
-                _LOGGER.warning(f"Auth failed {self._device_id_input}: {exc}")
+                _LOGGER.warning(
+                    "Auth failed %s: %s",
+                    self._device_id_input,
+                    exc,
+                )
                 errors["base"] = "invalid_auth"
+
             except ApiException as exc:
-                _LOGGER.error(f"API conn/init error auth {self._device_id_input}: {exc}")
+                _LOGGER.error(
+                    "API conn/init error auth %s: %s",
+                    self._device_id_input,
+                    exc,
+                )
                 errors["base"] = "cannot_connect"
+
             except Exception as exc:
-                _LOGGER.exception(f"Unexpected auth error {self._device_id_input}: {exc}")
+                _LOGGER.exception(
+                    "Unexpected auth error %s: %s",
+                    self._device_id_input,
+                    exc,
+                )
                 errors["base"] = "unknown"
 
         schema = vol.Schema(
-            {vol.Required(CONF_DEVICE_ID, default=self._device_id_input or ""): str}
+            {
+                vol.Required(
+                    CONF_DEVICE_ID,
+                    default=self._device_id_input or "",
+                ): str
+            }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+        )
 
     async def async_step_confirm_device(
-        self, user_input: dict[str, Any] | None = None
+        self,
+        user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
         """Handle device confirmation step."""
         errors: dict[str, str] = {}
@@ -148,49 +241,96 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             api = await self._get_api_client()
+
         except ApiException as exc:
-            _LOGGER.exception("Failed to get API client in confirm step: %s", exc)
+            _LOGGER.exception(
+                "Failed to get API client in confirm step: %s",
+                exc,
+            )
+
             errors["base"] = "cannot_connect"
+
             return self.async_show_form(
                 step_id="confirm_device",
-                description_placeholders={"device_name": "Error", "device_sn": "Error"},
+                description_placeholders={
+                    "device_name": "Error",
+                    "device_sn": "Error",
+                },
                 errors=errors,
             )
 
         if user_input is None:
             if not self._device_id_input:
                 _LOGGER.error("Device ID missing")
-                return self.async_abort(reason="cannot_connect")
+                return self.async_abort(
+                    reason="cannot_connect"
+                )
 
             try:
-                _LOGGER.info("Fetching device info for %s via API...", self._device_id_input)
-                device_info_api = await api.get_device_info(self._device_id_input)
-                _LOGGER.debug("Device info raw response: %s", device_info_api)
+                _LOGGER.info(
+                    "Fetching device info for %s via API...",
+                    self._device_id_input,
+                )
 
-                if isinstance(device_info_api, dict) and "_error" in device_info_api:
+                device_info_api = await api.get_device_info(
+                    self._device_id_input
+                )
+
+                _LOGGER.debug(
+                    "Device info raw response: %s",
+                    device_info_api,
+                )
+
+                if (
+                    isinstance(device_info_api, dict)
+                    and "_error" in device_info_api
+                ):
                     api_error = device_info_api["_error"]
-                    _LOGGER.error("API error when getting device info: %s", api_error)
-                    errors["base"] = (
-                        "invalid_auth" if "Auth" in api_error else "cannot_connect_deviceinfo"
+
+                    _LOGGER.error(
+                        "API error when getting device info: %s",
+                        api_error,
                     )
+
+                    errors["base"] = (
+                        "invalid_auth"
+                        if "Auth" in api_error
+                        else "cannot_connect_deviceinfo"
+                    )
+
                     return self.async_show_form(
                         step_id="confirm_device",
-                        description_placeholders={"device_name": "Err", "device_sn": "Err"},
+                        description_placeholders={
+                            "device_name": "Err",
+                            "device_sn": "Err",
+                        },
                         errors=errors,
                     )
 
                 self._device_sn_from_api = (
-                    device_info_api.get("deviceId") if isinstance(device_info_api, dict) else None
+                    device_info_api.get("deviceId")
+                    if isinstance(device_info_api, dict)
+                    else None
                 )
 
                 if not self._device_sn_from_api:
                     _LOGGER.warning(
-                        "deviceId not found for %s. Using input ID.", self._device_id_input
+                        "deviceId not found for %s. "
+                        "Using input ID.",
+                        self._device_id_input,
                     )
-                    self._device_sn_from_api = self._device_id_input
-                elif self._device_sn_from_api != self._device_id_input:
+
+                    self._device_sn_from_api = (
+                        self._device_id_input
+                    )
+
+                elif (
+                    self._device_sn_from_api
+                    != self._device_id_input
+                ):
                     _LOGGER.warning(
-                        "API deviceId '%s' differs from input '%s'. Using API ID.",
+                        "API deviceId '%s' differs from input '%s'. "
+                        "Using API ID.",
                         self._device_sn_from_api,
                         self._device_id_input,
                     )
@@ -220,17 +360,54 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 )
 
-                await self.async_set_unique_id(self._device_sn_from_api)
+                await self.async_set_unique_id(
+                    self._device_sn_from_api
+                )
+
                 updates = {
                     CONF_DEVICE_NAME: self._device_name,
                     CONF_DEVICE_ID: self._device_id_input,
                     CONF_HTTP_TOKEN: self._http_token,
                 }
 
+                # ==================================================
+                # FIX:
+                # Nếu thiết bị đã tồn tại thì lấy Config Entry
+                # hiện tại và cập nhật token thay vì gọi
+                # _abort_if_unique_id_configured().
+                #
+                # Điều này tránh lỗi:
+                # Flow aborted: already_configured
+                #
+                # Không tạo thêm device/config entry mới.
+                # ==================================================
+
+                if not self._reauth_entry:
+                    for entry in self.hass.config_entries.async_entries(
+                        DOMAIN
+                    ):
+                        if entry.unique_id == self._device_sn_from_api:
+                            _LOGGER.info(
+                                "Device %s is already configured. "
+                                "Using existing entry %s for token update.",
+                                self._device_sn_from_api,
+                                entry.entry_id,
+                            )
+
+                            self._reauth_entry = entry
+                            break
+
+                # ==================================================
+                # Nếu tìm thấy entry cũ, cập nhật token ngay.
+                # Không abort already_configured.
+                # ==================================================
+
                 if self._reauth_entry:
-                    pass
-                else:
-                    self._abort_if_unique_id_configured(updates=updates)
+                    _LOGGER.info(
+                        "Existing entry found for %s: %s",
+                        self._device_sn_from_api,
+                        self._reauth_entry.entry_id,
+                    )
 
                 return self.async_show_form(
                     step_id="confirm_device",
@@ -242,20 +419,43 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
             except AuthException as exc:
-                _LOGGER.error(f"Auth error get info {self._device_id_input}: {exc}")
+                _LOGGER.error(
+                    "Auth error get info %s: %s",
+                    self._device_id_input,
+                    exc,
+                )
+
                 errors["base"] = "invalid_auth"
+
             except ApiException as exc:
-                _LOGGER.error(f"API error get info {self._device_id_input}: {exc}")
+                _LOGGER.error(
+                    "API error get info %s: %s",
+                    self._device_id_input,
+                    exc,
+                )
+
                 errors["base"] = "cannot_connect_deviceinfo"
+
             except Exception:
-                _LOGGER.exception(f"Unexpected confirm error {self._device_id_input}")
+                _LOGGER.exception(
+                    "Unexpected confirm error %s",
+                    self._device_id_input,
+                )
+
                 errors["base"] = "unknown"
 
             return self.async_show_form(
                 step_id="confirm_device",
-                description_placeholders={"device_name": "Err", "device_sn": "Err"},
+                description_placeholders={
+                    "device_name": "Err",
+                    "device_sn": "Err",
+                },
                 errors=errors,
             )
+
+        # ==========================================================
+        # User đã xác nhận thiết bị
+        # ==========================================================
 
         config_data = {
             CONF_DEVICE_ID: self._device_id_input,
@@ -264,53 +464,140 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_HTTP_TOKEN: self._http_token,
         }
 
+        # ==========================================================
+        # UPDATE ENTRY CŨ
+        # ==========================================================
+
         if self._reauth_entry:
             _LOGGER.info(
-                f"Updating entry {self._reauth_entry.entry_id} for {self._device_sn_from_api} reauth"
+                "Updating existing entry %s for device %s",
+                self._reauth_entry.entry_id,
+                self._device_sn_from_api,
             )
-            self.hass.config_entries.async_update_entry(self._reauth_entry, data=config_data)
-            await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
-            return self.async_abort(reason="reauth_successful")
 
-        _LOGGER.info(f"Creating new entry for SN/ID: {self._device_sn_from_api}")
-        return self.async_create_entry(title=self._device_name, data=config_data)
+            self.hass.config_entries.async_update_entry(
+                self._reauth_entry,
+                data=config_data,
+                title=self._device_name,
+            )
 
-    async def async_step_reauth(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+            await self.hass.config_entries.async_reload(
+                self._reauth_entry.entry_id
+            )
+
+            _LOGGER.info(
+                "Successfully updated and reloaded entry %s",
+                self._reauth_entry.entry_id,
+            )
+
+            return self.async_abort(
+                reason="reauth_successful"
+            )
+
+        # ==========================================================
+        # THIẾT BỊ HOÀN TOÀN MỚI
+        # ==========================================================
+
+        _LOGGER.info(
+            "Creating new entry for SN/ID: %s",
+            self._device_sn_from_api,
+        )
+
+        return self.async_create_entry(
+            title=self._device_name,
+            data=config_data,
+        )
+
+    async def async_step_reauth(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
         """Handle reauth flow."""
         _LOGGER.info("Reauth flow started")
-        self._reauth_entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+        self._reauth_entry = (
+            self.hass.config_entries.async_get_entry(
+                self.context["entry_id"]
+            )
+        )
 
         if not self._reauth_entry:
-            return self.async_abort(reason="unknown_entry")
+            return self.async_abort(
+                reason="unknown_entry"
+            )
 
-        self._device_id_input = self._reauth_entry.data.get(CONF_DEVICE_ID)
+        self._device_id_input = (
+            self._reauth_entry.data.get(
+                CONF_DEVICE_ID
+            )
+        )
+
         if not self._device_id_input:
-            _LOGGER.error(f"Cannot reauth {self._reauth_entry.entry_id}: Device ID missing")
-            return self.async_abort(reason="missing_device_id")
+            _LOGGER.error(
+                "Cannot reauth %s: Device ID missing",
+                self._reauth_entry.entry_id,
+            )
+
+            return self.async_abort(
+                reason="missing_device_id"
+            )
 
         self._http_token = None
         self._api_client = None
-        return await self.async_step_user(user_input={CONF_DEVICE_ID: self._device_id_input})
+
+        return await self.async_step_user(
+            user_input={
+                CONF_DEVICE_ID: self._device_id_input
+            }
+        )
 
     async def async_step_reconfigure(
-        self, user_input: dict[str, Any] | None = None
+        self,
+        user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
         """Handle reconfigure flow (HA 2024.3+)."""
         _LOGGER.info("Reconfigure flow started")
-        reconfigure_entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+        reconfigure_entry = (
+            self.hass.config_entries.async_get_entry(
+                self.context["entry_id"]
+            )
+        )
+
         if not reconfigure_entry:
-            return self.async_abort(reason="unknown_entry")
+            return self.async_abort(
+                reason="unknown_entry"
+            )
 
         if user_input is not None:
-            device_id = user_input[CONF_DEVICE_ID]
+            device_id = user_input[
+                CONF_DEVICE_ID
+            ]
+
             self._device_id_input = device_id
             self._api_client = None
             self._http_token = None
             self._reauth_entry = reconfigure_entry
-            return await self.async_step_user(user_input={CONF_DEVICE_ID: device_id})
 
-        current_device_id = reconfigure_entry.data.get(CONF_DEVICE_ID, "")
+            return await self.async_step_user(
+                user_input={
+                    CONF_DEVICE_ID: device_id
+                }
+            )
+
+        current_device_id = reconfigure_entry.data.get(
+            CONF_DEVICE_ID,
+            "",
+        )
+
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema({vol.Required(CONF_DEVICE_ID, default=current_device_id): str}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DEVICE_ID,
+                        default=current_device_id,
+                    ): str
+                }
+            ),
         )
