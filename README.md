@@ -92,7 +92,7 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 3. Install **Lumentree Inverter** → Restart HA
 
 ### Manual
-1. Download [latest release](https://github.com/ngoviet/lumentreeHA/releases)
+1. Download [latest release](https://github.com/HoangQuan90/lumentreeHA/releases)
 2. Extract to `custom_components/lumentree/` in your HA config
 3. Restart Home Assistant
 
