@@ -88,7 +88,7 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 
 ### HACS (Recommended)
 1. Open **HACS** → **Integrations** → **Custom Repositories**
-2. Add `https://github.com/ngoviet/lumentreeHA` (Integration type)
+2. Add `https://github.com/HoangQuan90/lumentreeHA` (Integration type)
 3. Install **Lumentree Inverter** → Restart HA
 
 ### Manual
