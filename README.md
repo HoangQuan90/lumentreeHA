@@ -190,7 +190,7 @@ Nếu integration này giúp bạn tiết kiệm tiền điện, hãy ủng hộ
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) or [GitHub Releases](https:/HoangQuan90/github.com//lumentreeHA/releases) for detailed version history.
+See [CHANGELOG.md](CHANGELOG.md) or [GitHub Releases](https://github.com/HoangQuan90/lumentreeHA/releases) for detailed version history.
 
 ---
 
