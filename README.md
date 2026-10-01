@@ -1,18 +1,18 @@
-# Lumentree Solar Inverter â€” Home Assistant Integration
+# Lumentree Solar Inverter — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 [![GitHub release](https://img.shields.io/github/release/HoangQuan90/lumentreeHA.svg)](https://github.com/HoangQuan90/lumentreeHA/releases)
 [![GitHub stars](https://img.shields.io/github/stars/HoangQuan90/lumentreeHA.svg)](https://github.com/HoangQuan90/lumentreeHA/stargazers)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://github.com/HoangQuan90/lumentreeHA)
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-ff69b4?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/HoangQuan90/lumentreeHA)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ngoviet)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-ff69b4?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ngoviet)
 
 <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=HoangQuan90&repository=lumentreeHA&category=integration" class="my badge" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS" width="200" height="36"></a>
 
 > **Tôi là người Việt, tự mình duy trì dự án này.** Nếu integration này giúp bạn theo dõi và tiết kiệm tiền điện, hãy [mua tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕ — mỗi cốc = 50,000 VND = động lực để tôi tiếp tục phát triển.
 
 <p align="center">
-  <a href="https://github.com/HoangQuan90/lumentreeHA">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=HoangQuan90&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
+  <a href="https://buymeacoffee.com/ngoviet">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=ngoviet&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
   </a>
 </p>
 
@@ -27,18 +27,18 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 ### Sensors Overview
 ![Sensors Entity Overview](images/sensors_entity_overview.jpg)
 
-### Dashboard â€” Energy Charts (24h)
+### Dashboard — Energy Charts (24h)
 ![Dashboard Energy Charts 24h](images/dashboard_energy_charts_24h.jpg)
 
-### Dashboard â€” Statistics Summary
+### Dashboard — Statistics Summary
 ![Dashboard Statistics Summary](images/dashboard_statistics_summary.jpg)
 
 ---
 
 ## Features
 
-### Real-time Data (MQTT â€” 5s polling)
-- **PV Power**: Solar generation (W) â€” PV1 + PV2
+### Real-time Data (MQTT — 5s polling)
+- **PV Power**: Solar generation (W) — PV1 + PV2
 - **Battery Management**: Power, voltage, current, SOC (%), status (Charging/Discharging)
 - **Grid Power**: Import/export power + status
 - **Load Power**: Total consumption monitoring
@@ -48,7 +48,7 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 - **Device**: Temperature, online status, UPS mode, serial number, inverter/generator power
 - **Battery Cells**: Individual cell voltage monitoring
 
-### Daily Statistics (HTTP API â€” 5min refresh)
+### Daily Statistics (HTTP API — 5min refresh)
 - PV Generation, Battery Charge/Discharge, Grid Import, Load Consumption
 - Essential Load, Total Load, Energy Saved (kWh), Cost Savings (VND)
 - **288-point 5-minute series** for detailed charts
@@ -71,13 +71,13 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 - **3x faster** API calls with concurrent requests
 - **20-30% lower** memory with `__slots__`
 
-> ðŸ’¡ **NgÆ°á»i dÃ¹ng bÃ¡o cÃ¡o tiáº¿t kiá»‡m 200,000-500,000 VND/thÃ¡ng tiá»n Ä‘iá»‡n** nhá» theo dÃµi chÃ­nh xÃ¡c sáº£n lÆ°á»£ng Ä‘iá»‡n máº·t trá»i vÃ  tiÃªu thá»¥. Náº¿u integration nÃ y giÃºp Ã­ch cho báº¡n, [á»§ng há»™ tÃ´i má»™t cá»‘c cÃ  phÃª](https://github.com/HoangQuan90/lumentreeHA) â˜•
+> 💡 **Người dùng báo cáo tiết kiệm 200,000-500,000 VND/tháng tiền điện** nhờ theo dõi chính xác sản lượng điện mặt trời và tiêu thụ. Nếu integration này giúp ích cho bạn, [ủng hộ tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕
 
 ---
 
 ## Requirements
 
-- **Home Assistant**: 2024.4+ (`config_flow.py` imports `ConfigFlowResult`, which HA added in 2024.4 â€” verified against the `homeassistant/core` tree at `2024.1.0`, `2024.2.0`, `2024.3.0` and `2024.4.0`; `hacs.json` declares the same floor so HACS blocks the install instead of letting it fail at setup)
+- **Home Assistant**: 2024.4+ (`config_flow.py` imports `ConfigFlowResult`, which HA added in 2024.4 — verified against the `homeassistant/core` tree at `2024.1.0`, `2024.2.0`, `2024.3.0` and `2024.4.0`; `hacs.json` declares the same floor so HACS blocks the install instead of letting it fail at setup)
 - **Python**: 3.11+ (the coordinators use `asyncio.timeout`, added in 3.11; the parser and sensor modules also annotate signatures with `X | None` without `from __future__ import annotations`, which Python 3.9 evaluates at import time and rejects)
 - **Dependencies**: aiohttp>=3.8.0, paho-mqtt>=1.6.0, crcmod>=1.7
 - **Network**: Internet (API + MQTT to `lesvr.suntcn.com`)
@@ -147,8 +147,8 @@ Saved energy (kWh) and cost savings (VND) are exposed as state attributes on the
 - Verify network access to `lesvr.suntcn.com:1886` (MQTT) and `lesvr.suntcn.com:80` (HTTP)
 
 ### Sensors stuck / not updating
-- MQTT sensors freeze â†’ integration auto-reconnects within 2 minutes
-- Stats sensors â†’ check if daily coordinator is updating
+- MQTT sensors freeze → integration auto-reconnects within 2 minutes
+- Stats sensors → check if daily coordinator is updating
 
 ### Enable debug logging
 ```yaml
@@ -195,4 +195,3 @@ See [CHANGELOG.md](CHANGELOG.md) or [GitHub Releases](https://github.com/HoangQu
 ---
 
 **Made with ❤️ by a Vietnamese developer — [Buy me a coffee](https://buymeacoffee.com/ngoviet) if this helps you.**
-
