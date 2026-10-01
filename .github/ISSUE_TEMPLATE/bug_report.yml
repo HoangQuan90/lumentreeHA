@@ -1,4 +1,4 @@
-name: Bug Report
+﻿name: Bug Report
 description: Report a bug with the Lumentree integration
 title: "[Bug]: "
 labels: ["bug"]
@@ -7,12 +7,12 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug! Please fill out this form.
-        Before submitting, check the [troubleshooting guide](https://github.com/ngoviet/lumentreeHA#troubleshooting).
+        Before submitting, check the [troubleshooting guide](https://github.com/HoangQuan90/lumentreeHA#troubleshooting).
   - type: input
     id: ha_version
     attributes:
       label: Home Assistant Version
-      description: Settings → About → the version next to "Home Assistant".
+      description: Settings â†’ About â†’ the version next to "Home Assistant".
     validations:
       required: true
   - type: input
@@ -52,3 +52,4 @@ body:
         - label: I have checked the troubleshooting guide
         - label: I have enabled debug logging and checked the logs
         - label: I am running the latest version of the integration
+

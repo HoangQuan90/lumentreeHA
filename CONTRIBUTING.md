@@ -1,16 +1,16 @@
-# Contributing to LumentreeHA
+﻿# Contributing to LumentreeHA
 
-Cảm ơn bạn đã quan tâm đóng góp! Dự án này được duy trì bởi một developer Việt Nam.
+Cáº£m Æ¡n báº¡n Ä‘Ã£ quan tÃ¢m Ä‘Ã³ng gÃ³p! Dá»± Ã¡n nÃ y Ä‘Æ°á»£c duy trÃ¬ bá»Ÿi má»™t developer Viá»‡t Nam.
 
 ## How to contribute
 
 ### Report bugs
-- Use the [bug report template](https://github.com/ngoviet/lumentreeHA/issues/new?template=bug_report.yml)
+- Use the [bug report template](https://github.com/HoangQuan90/lumentreeHA/issues/new?template=bug_report.yml)
 - Enable debug logging and include relevant logs
 - Describe your Home Assistant version, integration version, and inverter model
 
 ### Suggest features
-- Use the [feature request template](https://github.com/ngoviet/lumentreeHA/issues/new?template=feature_request.yml)
+- Use the [feature request template](https://github.com/HoangQuan90/lumentreeHA/issues/new?template=feature_request.yml)
 - Describe the problem and proposed solution
 
 ### Submit code
@@ -32,4 +32,6 @@ Cảm ơn bạn đã quan tâm đóng góp! Dự án này được duy trì bở
 3. Check logs for errors
 
 ## Support
-If this project helps you, consider [buying me a coffee](https://buymeacoffee.com/ngoviet).
+If this project helps you, consider [buying me a coffee](https://github.com/HoangQuan90/lumentreeHA).
+
+
