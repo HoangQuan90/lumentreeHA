@@ -1,4 +1,4 @@
-﻿# Contributing to LumentreeHA
+# Contributing to LumentreeHA
 
 Cáº£m Æ¡n báº¡n Ä‘Ã£ quan tÃ¢m Ä‘Ã³ng gÃ³p! Dá»± Ã¡n nÃ y Ä‘Æ°á»£c duy trÃ¬ bá»Ÿi má»™t developer Viá»‡t Nam.
 

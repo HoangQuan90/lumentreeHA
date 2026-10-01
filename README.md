@@ -1,4 +1,4 @@
-﻿# Lumentree Solar Inverter â€” Home Assistant Integration
+# Lumentree Solar Inverter â€” Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 [![GitHub release](https://img.shields.io/github/release/HoangQuan90/lumentreeHA.svg)](https://github.com/HoangQuan90/lumentreeHA/releases)
