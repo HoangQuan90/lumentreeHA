@@ -8,7 +8,7 @@
 
 <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=HoangQuan90&repository=lumentreeHA&category=integration" class="my badge" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS" width="200" height="36"></a>
 
-> **TÃ´i lÃ  ngÆ°á»i Viá»‡t, tá»± mÃ¬nh duy trÃ¬ dá»± Ã¡n nÃ y.** Náº¿u integration nÃ y giÃºp báº¡n theo dÃµi vÃ  tiáº¿t kiá»‡m tiá»n Ä‘iá»‡n, hÃ£y [mua tÃ´i má»™t cá»‘c cÃ  phÃª](https://github.com/HoangQuan90/lumentreeHA) â˜• â€” má»—i cá»‘c = 50,000 VND = Ä‘á»™ng lá»±c Ä‘á»ƒ tÃ´i tiáº¿p tá»¥c phÃ¡t triá»ƒn.
+> **Tôi là người Việt, tự mình duy trì dự án này.** Nếu integration này giúp bạn theo dõi và tiết kiệm tiền điện, hãy [mua tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕ — mỗi cốc = 50,000 VND = động lực để tôi tiếp tục phát triển.
 
 <p align="center">
   <a href="https://github.com/HoangQuan90/lumentreeHA">
@@ -87,9 +87,9 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 ## Installation
 
 ### HACS (Recommended)
-1. Open **HACS** â†’ **Integrations** â†’ **Custom Repositories**
+1. Open **HACS** → **Integrations** → **Custom Repositories**
 2. Add `https://github.com/HoangQuan90/lumentreeHA` (Integration type)
-3. Install **Lumentree Inverter** â†’ Restart HA
+3. Install **Lumentree Inverter** → Restart HA
 
 ### Manual
 1. Download [latest release](https://github.com/HoangQuan90/lumentreeHA/releases)
@@ -100,9 +100,9 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 
 ## Configuration
 
-1. **Settings** â†’ **Devices & Services** â†’ **Add Integration**
+1. **Settings** → **Devices & Services** → **Add Integration**
 2. Search **Lumentree Inverter**
-3. Enter **Device ID** (format: `H240909079` â€” found on device label or Lumentree app)
+3. Enter **Device ID** (format: `H240909079` — found on device label or Lumentree app)
 4. Follow setup wizard
 
 ---
@@ -162,11 +162,11 @@ logger:
 ## About the Developer
 
 <p align="center">
-  <b>TÃ´i lÃ  ngÆ°á»i Viá»‡t Nam ðŸ‡»ðŸ‡³ â€” má»™t mÃ¬nh xÃ¢y dá»±ng vÃ  duy trÃ¬ integration nÃ y.</b><br/>
-  DÃ nh <b>200+ giá»</b> phÃ¡t triá»ƒn, sá»­a lá»—i, vÃ  cáº­p nháº­t Ä‘á»ƒ integration hoáº¡t Ä‘á»™ng á»•n Ä‘á»‹nh.<br/>
-  <b>Má»¥c tiÃªu: $20/thÃ¡ng</b> â€” Ä‘á»§ Ä‘á»ƒ tÃ´i cÃ³ Ä‘á»™ng lá»±c tiáº¿p tá»¥c cáº­p nháº­t lÃ¢u dÃ i.<br/><br/>
-  <a href="https://github.com/HoangQuan90/lumentreeHA">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=HoangQuan90&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
+  <b>Tôi là người Việt Nam 🇻🇳 — một mình xây dựng và duy trì integration này.</b><br/>
+  Dành <b>200+ giờ</b> phát triển, sửa lỗi, và cập nhật để integration hoạt động ổn định.<br/>
+  <b>Mục tiêu: $20/tháng</b> — đủ để tôi có động lực tiếp tục cập nhật lâu dài.<br/><br/>
+  <a href="https://buymeacoffee.com/ngoviet">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=ngoviet&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
   </a>
 </p>
 
@@ -174,17 +174,17 @@ logger:
 
 ## Support This Project
 
-Náº¿u integration nÃ y giÃºp báº¡n tiáº¿t kiá»‡m tiá»n Ä‘iá»‡n, hÃ£y á»§ng há»™ tÃ´i:
+Nếu integration này giúp bạn tiết kiệm tiền điện, hãy ủng hộ tôi:
 
-### Quá»‘c táº¿
-- [â˜• Buy Me A Coffee](https://github.com/HoangQuan90/lumentreeHA) â€” Credit card, Apple Pay, PayPal
-- [ðŸ’– GitHub Sponsors](https://github.com/HoangQuan90/lumentreeHA) â€” Zero-fee recurring sponsorship
+### Quốc tế
+- [☕ Buy Me A Coffee](https://buymeacoffee.com/ngoviet) — Credit card, Apple Pay, PayPal
+- [💖 GitHub Sponsors](https://github.com/sponsors/ngoviet) — Zero-fee recurring sponsorship
 
-### Viá»‡t Nam
-- **VietQR** â€” QuÃ©t mÃ£ chuyá»ƒn khoáº£n ngÃ¢n hÃ ng (miá»…n phÃ­)
-- **Momo** â€” Chuyá»ƒn tiá»n qua vÃ­ Momo
+### Việt Nam
+- **VietQR** — Quét mã chuyển khoản ngân hàng (miễn phí)
+- **Momo** — Chuyển tiền qua ví Momo
 
-*(QR codes coming soon â€” Ä‘ang chá» thÃ´ng tin tÃ i khoáº£n)*
+*(QR codes coming soon — đang chờ thông tin tài khoản)*
 
 ---
 
@@ -194,5 +194,5 @@ See [CHANGELOG.md](CHANGELOG.md) or [GitHub Releases](https://github.com/HoangQu
 
 ---
 
-**Made with â¤ï¸ by a Vietnamese developer â€” [Buy me a coffee](https://github.com/HoangQuan90/lumentreeHA) if this helps you.**
+**Made with ❤️ by a Vietnamese developer — [Buy me a coffee](https://buymeacoffee.com/ngoviet) if this helps you.**
 
