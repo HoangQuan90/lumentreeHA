@@ -21,7 +21,7 @@
             "unknown": "An unknown error occurred."
         },
         "abort": {
-            "already_configured": "Device with this ID (SN: {device_sn}) is already configured.",
+            "already_configured": "This Lumentree device is already configured.",
             "reauth_successful": "Re-authentication was successful",
             "missing_device_id": "Cannot reauthenticate: Device ID missing in existing configuration.",
             "unknown_entry": "Cannot reauthenticate: Configuration entry not found.",
