@@ -23,7 +23,7 @@
             "unknown": "Lỗi không xác định xảy ra."
         },
         "abort": {
-            "already_configured": "Thiết bị với ID này (SN: {device_sn}) đã được cấu hình.",
+            "already_configured": "Thiết bị Lumentree này đã được cấu hình.",
             "reauth_successful": "Xác thực lại thành công",
             "missing_device_id": "Không thể xác thực lại: Thiếu Device ID trong cấu hình hiện tại.",
             "unknown_entry": "Không thể xác thực lại: Không tìm thấy cấu hình.",
