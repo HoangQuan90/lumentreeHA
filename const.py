@@ -82,7 +82,7 @@ DEFAULT_POLLING_INTERVAL = 5
 # New intervals for statistics coordinators
 DEFAULT_DAILY_INTERVAL: Final = 300  # 5 minutes (server updates every 5 minutes)
 DEFAULT_MONTHLY_INTERVAL: Final = 300  # 5 minutes (to match daily update frequency)
-DEFAULT_YEARLY_INTERVAL: Final = 300  # 5 minutes (to match daily update frequency)
+DEFAULT_YEARLY_INTERVAL: Final = 3600  # 5 minutes (to match daily update frequency)
 
 # --- Savings / Tariffs ---
 DEFAULT_TARIFF_VND_PER_KWH: Final = (
