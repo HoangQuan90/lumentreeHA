@@ -1,0 +1,76 @@
+{
+    "title": "Lumentree Inverter",
+    "config": {
+        "step": {
+            "user": {
+                "title": "Lumentree Device Authentication",
+                "description": "Please enter the **Device ID** of your Lumentree inverter.\n\nYou can usually find the Device ID on the label of the inverter or within the mobile app.",
+                "data": { "device_id": "Device ID" }
+            },
+            "confirm_device": {
+                "title": "Confirm Device",
+                "description": "Lumentree device found!\n\n**Name:** {device_name}\n**ID (SN):** {device_sn}\n\nPress SUBMIT to finish adding the device.",
+                "data": {}
+            }
+        },
+        "error": {
+            "cannot_connect": "Unable to connect to the Lumentree API. Check network connection.",
+            "invalid_auth": "Authentication failed. Check the Device ID or the API might be temporarily unavailable. Token might be expired.",
+            "cannot_connect_deviceinfo": "Could not fetch device info after authentication. Check network connection or API status.",
+            "token_missing": "Internal error: Authentication token is missing.",
+            "unknown": "An unknown error occurred."
+        },
+        "abort": {
+            "already_configured": "Device with this ID (SN: {device_sn}) is already configured.",
+            "reauth_successful": "Re-authentication was successful",
+            "missing_device_id": "Cannot reauthenticate: Device ID missing in existing configuration.",
+            "unknown_entry": "Cannot reauthenticate: Configuration entry not found.",
+            "auth_failed_reauth": "Re-authentication failed. Please check the Device ID."
+        }
+    },
+    "entity": {
+        "sensor": {
+            "pv_power": { "name": "PV Power" },
+            "battery_power": { "name": "Battery Power" },
+            "battery_soc": { "name": "Battery SOC" },
+            "grid_power": { "name": "Grid Power" },
+            "load_power": { "name": "Load Power" },
+            "battery_voltage": { "name": "Battery Voltage" },
+            "battery_current": { "name": "Battery Current" },
+            "ac_output_voltage": { "name": "AC Output Voltage" },
+            "grid_voltage": { "name": "Grid Voltage" },
+            "ac_output_frequency": { "name": "AC Output Frequency" },
+            "ac_output_power": { "name": "AC Output Power" },
+            "ac_output_va": { "name": "AC Output Apparent Power" },
+            "device_temperature": { "name": "Device Temperature" },
+            "pv1_voltage": { "name": "PV1 Voltage" },
+            "pv1_power": { "name": "PV1 Power" },
+            "pv2_voltage": { "name": "PV2 Voltage" },
+            "pv2_power": { "name": "PV2 Power" },
+            "last_raw_mqtt_hex": { "name": "Last Raw MQTT Hex" },
+            "pv_today": { "name": "PV Generation Today" },
+            "charge_today": { "name": "Battery Charge Today" },
+            "discharge_today": { "name": "Battery Discharge Today" },
+            "grid_in_today": { "name": "Grid Input Today" },
+            "load_today": { "name": "Load Consumption Today" },
+            "battery_status": { "name": "Battery Status" },
+            "grid_status": { "name": "Grid Status" },
+            "ac_input_voltage": { "name": "AC Input Voltage" },
+            "ac_input_frequency": { "name": "AC Input Frequency" },
+            "ac_input_power": { "name": "AC Input Power" },
+            "battery_type": { "name": "Battery Type" },
+            "master_slave_status": { "name": "Master/Slave Status" },
+            "mqtt_device_sn": { "name": "Device SN (MQTT)" },
+            "battery_cell_info": { "name": "Battery Cell Info" },
+            "self_consumption_ratio": { "name": "Self-Consumption Ratio" },
+            "work_mode": { "name": "Work Mode" },
+            "battery_mode": { "name": "Battery Mode" },
+            "fw_version": { "name": "Firmware Version" },
+            "ctrl_version": { "name": "Controller Version" }
+        },
+        "binary_sensor": {
+            "online_status": { "name": "Online Status" },
+            "is_ups_mode": { "name": "UPS Mode" }
+        }
+    }
+}
