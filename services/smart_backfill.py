@@ -1,15 +1,4 @@
-"""Smart backfill: fill the year caches from the Lumentree cloud, day by day.
-
-Every day is requested with the per-day API (``aggregator.fetch_day``), which
-always answers for the exact date it is asked about. The month endpoint
-(getMonthData) is NOT used by default: the cloud ignores its ``month``
-parameter for months that are over and returns the current month's numbers
-again, so it cannot be trusted to label values with the right date.
-
-Only days the cache is missing are requested, and today / future days are
-never requested. A restart with complete history therefore asks the cloud for
-nothing, and a normal night adds just yesterday.
-"""
+"""Smart backfill: fill the year caches a month at a time from getMonthData."""
 
 from __future__ import annotations
 
@@ -35,109 +24,46 @@ _MONTH_KEYS: dict[str, str] = {
     "bat": "charge",
     "batF": "discharge",
 }
-_REQUIRED_API_KEYS = ("pv", "grid", "homeload", "essentialLoad")
 _DAY_METRICS = tuple(_MONTH_KEYS.values())
 
-# Ignore differences no larger than API rounding noise.
+# A cached value this much below the API's counts as an unfinished day.  The
+# API reports whole 0.1 kWh units, so anything smaller is rounding noise.
 _PARTIAL_DAY_TOLERANCE = 0.05
+
 _REQUEST_DELAY_SECONDS = 0.1
-_MAX_REQUEST_DELAY_SECONDS = 5.0
-
-# Give up on a run after this many per-day requests fail back to back, so a
-# cloud that is down is not hammered. The next run (startup / 00:20) retries.
-_MAX_CONSECUTIVE_ERRORS = 5
-
-# getMonthData is only ever considered for the month in progress, and only when
-# this flag is turned on. Off by default: every value then comes from the
-# per-day API and is stored under exactly the date that was requested.
-_USE_MONTH_API_FOR_CURRENT_MONTH = False
-
-# Kept for backward compatibility with code that imports it; no longer used.
-_MAX_IGNORED_STREAK = 3
 
 
 class _ParamsIgnoredError(Exception):
-    """getMonthData answered a month with another month's numbers."""
-
-
-def _validate_month_data(
-    month_data: dict[str, Any], year: int, month: int
-) -> None:
-    """Reject truncated/malformed responses before they can damage the cache.
-
-    The four consumption/production series are required. Battery series have
-    historically been omitted by some API responses, so those are optional;
-    when supplied, however, they must cover the requested month too.
-    """
-    if not isinstance(month_data, dict):
-        raise ValueError("getMonthData did not return a dictionary")
-
-    days_in_month = calendar.monthrange(year, month)[1]
-    for key in _REQUIRED_API_KEYS:
-        series = month_data.get(key)
-        if not isinstance(series, (list, tuple)) or len(series) < days_in_month:
-            length = len(series) if isinstance(series, (list, tuple)) else "missing"
-            raise ValueError(
-                f"getMonthData series {key!r} is incomplete for {year}-{month:02d} "
-                f"(got {length}, expected at least {days_in_month})"
-            )
-
-    for key in ("bat", "batF"):
-        if key not in month_data or month_data[key] is None:
-            continue
-        series = month_data[key]
-        if not isinstance(series, (list, tuple)) or len(series) < days_in_month:
-            length = len(series) if isinstance(series, (list, tuple)) else "invalid"
-            raise ValueError(
-                f"getMonthData series {key!r} is incomplete for {year}-{month:02d} "
-                f"(got {length}, expected at least {days_in_month})"
-            )
+    """getMonthData answered a past month with another month's numbers."""
 
 
 def _day_values(month_data: dict[str, Any], day: int) -> dict[str, float]:
-    """Return the day's available metrics in kWh.
-
-    Missing optional battery series are intentionally omitted instead of
-    converted to zero, allowing existing cached battery data to be preserved.
-    """
+    """One day's metrics (kWh) out of a getMonthData result."""
     values: dict[str, float] = {}
     for api_key, cache_key in _MONTH_KEYS.items():
-        series = month_data.get(api_key)
-        if not isinstance(series, (list, tuple)) or day > len(series):
-            continue
-        try:
-            value = float(series[day - 1] or 0.0)
-        except (TypeError, ValueError) as err:
-            raise ValueError(f"Invalid {api_key} value for day {day}: {series[day - 1]!r}") from err
-        if value < 0:
-            # Some APIs use negative values for direction; preserve the sign
-            # only if the API client has already normalized that metric.
-            value = abs(value)
-        values[cache_key] = value
+        series = month_data.get(api_key) or []
+        values[cache_key] = float(series[day - 1]) if day <= len(series) else 0.0
     return values
 
 
-def _validate_not_future(
-    month_data: dict[str, Any], year: int, month: int, today: dt.date
-) -> None:
-    """Reject a current-month answer that reports energy for future days.
+# Series a day must appear in before the answer can speak for that day.  The
+# battery and essential-load series are optional: units without them omit them.
+_REQUIRED_SERIES = ("pv", "grid", "homeload")
 
-    The current month is always merged and its API values are authoritative, so
-    a wrong answer here would overwrite good cache data. Days after today cannot
-    have production; if they do, the API answered a different month. One day of
-    grace covers a cloud clock that is ahead of Home Assistant's timezone.
+
+def _covered_days(month_data: dict[str, Any]) -> int | None:
+    """How many leading days every required series reports, or None for all.
+
+    A required series that stops early is a truncated answer: the days past
+    its end were never reported, which is not the same as reported as zero.
+    Reading them as zero marked those days empty for good, the month then
+    counted as complete, and it was never asked for again.  When every
+    required series is empty the month simply has no data, as before.
     """
-    if (year, month) != (today.year, today.month):
-        return
-    last_ok = today + dt.timedelta(days=1)
-    for day in range(1, calendar.monthrange(year, month)[1] + 1):
-        if dt.date(year, month, day) <= last_ok:
-            continue
-        values = _day_values(month_data, day)
-        if any(value > _PARTIAL_DAY_TOLERANCE for value in values.values()):
-            raise _ParamsIgnoredError(
-                f"{year}-{month:02d} reports energy for future day {day}"
-            )
+    lengths = [len(month_data.get(key) or []) for key in _REQUIRED_SERIES]
+    if not any(lengths):
+        return None
+    return min(lengths)
 
 
 def _has_data(values: dict[str, Any]) -> bool:
@@ -151,7 +77,7 @@ def _month_is_complete(cache: dict[str, Any], year: int, month: int, today: dt.d
     for day in range(1, calendar.monthrange(year, month)[1] + 1):
         date = dt.date(year, month, day)
         if date >= today:
-            return False
+            return False  # The month is not over, so the API has more to say.
         date_str = date.isoformat()
         if date_str not in daily and date_str not in empty:
             return False
@@ -167,7 +93,13 @@ def _month_has_cached_data(cache: dict[str, Any], year: int, month: int) -> bool
 
 
 def drop_unfinished_days(cache: dict[str, Any], today: dt.date) -> bool:
-    """Remove entries for ``today`` and later; return True if any were removed."""
+    """Remove entries for ``today`` and later; return True if any were removed.
+
+    Earlier versions cached the partial reading of the day in progress and
+    zero rows for the rest of the month.  An entry for a day that is not over
+    blocks the day's real total from ever being written, and the in-progress
+    row was counted a second time next to the live reading.
+    """
     cutoff = today.isoformat()
     daily = cache.get("daily", {})
     stale = [date_str for date_str in daily if date_str >= cutoff]
@@ -190,26 +122,32 @@ def merge_month(
     month_data: dict[str, Any],
     today: dt.date,
 ) -> tuple[int, int, bool]:
-    """Merge a validated month response into the daily cache.
+    """Fold one getMonthData result into ``cache``.
 
-    Only finished days are written. For metrics actually returned by the API,
-    the API value is authoritative in either direction, so stale high values
-    are corrected as well as incomplete low values. Missing battery metrics do
-    not overwrite the cached battery values.
+    Only finished days (before ``today``) that every required series covers
+    are written.  A day missing from the
+    cache is added (or marked empty when the API has nothing for it either).
+    A cached day is raised metric by metric to the API value where the cache
+    is lower: a day's counters only grow, so a lower cached value is a reading
+    taken before the day ended, or a discharge that an earlier version dropped.
 
-    Returns (days_added, days_updated, month_has_data).
+    Returns:
+        (days_added, days_updated, month_has_data)
     """
-    _validate_month_data(month_data, year, month)
-
     days_added = 0
     days_updated = 0
     month_has_data = False
     daily = cache.setdefault("daily", {})
     empty = set(cache.get("meta", {}).get("empty_dates", []))
+    covered = _covered_days(month_data)
 
     for day in range(1, calendar.monthrange(year, month)[1] + 1):
         date = dt.date(year, month, day)
         if date >= today:
+            break
+        if covered is not None and day > covered:
+            # Not reported: leave the day to the next run instead of
+            # recording a zero the device never sent.
             break
         date_str = date.isoformat()
         api_values = _day_values(month_data, day)
@@ -223,20 +161,17 @@ def merge_month(
                     cache_io.mark_empty(cache, date_str)
                     days_added += 1
                 continue
-            # New entries need every cache metric; absent optional battery
-            # fields default to zero only when no previous value exists.
-            complete_values = {key: float(api_values.get(key, 0.0) or 0.0) for key in _DAY_METRICS}
-            cache_io.update_daily(cache, date_str, complete_values)
+            cache_io.update_daily(cache, date_str, api_values)
             days_added += 1
             continue
 
         merged = {key: float(existing.get(key, 0.0) or 0.0) for key in _DAY_METRICS}
-        changed = False
-        for key, api_value in api_values.items():
-            if abs(float(api_value) - merged[key]) > _PARTIAL_DAY_TOLERANCE:
-                merged[key] = float(api_value)
-                changed = True
-        if changed:
+        raised = False
+        for key in _DAY_METRICS:
+            if api_values[key] > merged[key] + _PARTIAL_DAY_TOLERANCE:
+                merged[key] = api_values[key]
+                raised = True
+        if raised:
             cache_io.update_daily(cache, date_str, merged)
             days_updated += 1
 
@@ -244,115 +179,50 @@ def merge_month(
 
 
 def _fingerprint(month_data: dict[str, Any]) -> tuple[tuple[float, ...], ...]:
-    """Stable fingerprint of a month response (kept for backward compatibility)."""
-    result: list[tuple[float, ...]] = []
-    for key in _MONTH_KEYS:
-        series = month_data.get(key)
-        if not isinstance(series, (list, tuple)):
-            result.append(())
-            continue
-        try:
-            result.append(tuple(float(value or 0.0) for value in series))
-        except (TypeError, ValueError):
-            result.append(tuple())
-    return tuple(result)
-
-
-async def _fill_month_from_daily_api(
-    aggregator, cache: dict[str, Any], year: int, month: int, today: dt.date
-) -> tuple[dict[str, Any], int, bool, int, bool]:
-    """Fill the finished days of one month that the cache is missing.
-
-    Each missing day is requested with the per-day API, which always answers
-    for the date it was asked about. Days that are cached or already known to
-    be empty are skipped, and today / future days are never requested.
-
-    Returns (cache, days_added, month_has_data, errors, gave_up). ``gave_up``
-    is True when the cloud kept failing and the run should stop.
-    """
-    days_added = 0
-    month_has_data = False
-    errors = 0
-    consecutive_errors = 0
-    gave_up = False
-    delay = _REQUEST_DELAY_SECONDS
-    known_empty = set(cache.get("meta", {}).get("empty_dates", []))
-
-    for day in range(1, calendar.monthrange(year, month)[1] + 1):
-        date = dt.date(year, month, day)
-        if date >= today:
-            break
-        date_str = date.isoformat()
-
-        existing = cache.setdefault("daily", {}).get(date_str)
-        if existing is not None:
-            month_has_data = month_has_data or _has_data(existing)
-            continue
-        if date_str in known_empty:
-            continue
-
-        try:
-            fetched = await aggregator.fetch_day(date_str)
-        except Exception as err:
-            errors += 1
-            consecutive_errors += 1
-            delay = min(delay * 2, _MAX_REQUEST_DELAY_SECONDS)
-            _LOGGER.debug("Per-day request for %s failed: %s", date_str, err)
-            if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
-                gave_up = True
-                break
-            await asyncio.sleep(delay)
-            continue
-
-        consecutive_errors = 0
-        delay = _REQUEST_DELAY_SECONDS
-        values = {key: float(fetched.get(key, 0.0) or 0.0) for key in _DAY_METRICS}
-        if _has_data(values):
-            cache, _metrics = cache_io.update_daily(cache, date_str, values)
-            month_has_data = True
-        else:
-            cache_io.mark_empty(cache, date_str)
-        days_added += 1
-        await asyncio.sleep(delay)
-
-    return cache, days_added, month_has_data, errors, gave_up
-
-
-async def _persist_year(hass, device_id: str, year: int, cache: dict[str, Any]) -> None:
-    """Write a year cache to disk (blocking I/O runs in the executor)."""
-
-    def _write() -> None:
-        cache_io.save_year(device_id, year, cache_io.recompute_aggregates(cache))
-
-    await hass.async_add_executor_job(_write)
+    return tuple(tuple(month_data.get(key) or ()) for key in _MONTH_KEYS)
 
 
 async def smart_backfill(
     hass, aggregator, max_years: int = 10, optimize_cache: bool = True
 ) -> dict[str, Any]:
-    """Fill year caches, newest month first, one day at a time.
+    """Fill the year caches from getMonthData, newest month first.
 
-    Each missing finished day is requested with the per-day API, so its values
-    are stored under the exact date asked for. Progress is written after every
-    month, so an interrupted run resumes where it stopped.
+    Each month is one request.  A month whose finished days are all cached
+    (or known empty) is skipped without a request, so a restart on a warm
+    cache asks for little more than the current month.  The walk stops at the
+    first past year without a single day of data -- the device's history
+    starts after it.
+
+    This used to choose months from getYearData.  The captured responses in
+    docs/ show that endpoint answering year=2026 with the twelve months of
+    2025 (their sum is exactly getHistoryYearData's 2025 total, and Oct-Dec
+    are non-zero on 2026-09-12), so the months it picked were last year's.
+
+    Args:
+        hass: HomeAssistant instance
+        aggregator: StatsAggregator instance
+        max_years: Maximum years to walk back, the current one included
+        optimize_cache: If True, optimize cache after backfill
+
+    Returns:
+        Dictionary with backfill statistics
     """
     device_id = aggregator._device_id
     api_client: LumentreeHttpApiClient = aggregator._api
     today = today_in_ha(hass)
 
-    start_time = time.monotonic()
+    start_time = time.time()
     stats: dict[str, Any] = {
         "years_processed": 0,
         "months_processed": 0,
         "days_added": 0,
         "days_updated": 0,
-        "days_from_daily_api": 0,
         "years_with_data": [],
         "errors": 0,
-        "ignored_months": [],
     }
     _LOGGER.info("Starting smart backfill for device %s (max_years=%s)", device_id, max_years)
 
+    seen: dict[tuple[tuple[float, ...], ...], tuple[int, int]] = {}
     aborted = False
 
     for year in range(today.year, today.year - max(1, max_years), -1):
@@ -360,78 +230,55 @@ async def smart_backfill(
         dirty = drop_unfinished_days(cache, today) if year == today.year else False
         year_has_data = False
         year_errors = 0
-        year_written = False
         last_month = today.month if year == today.year else 12
 
         for month in range(last_month, 0, -1):
             if _month_is_complete(cache, year, month, today):
                 year_has_data = year_has_data or _month_has_cached_data(cache, year, month)
                 continue
+            try:
+                month_data = await api_client.get_month_data(device_id, year, month)
+            except Exception as err:
+                _LOGGER.warning("getMonthData %s-%02d failed: %s", year, month, err)
+                stats["errors"] += 1
+                year_errors += 1
+                continue
 
-            added = 0
-            updated = 0
-            month_has_data = False
-            handled_by_month_api = False
-
-            # getMonthData is never used for finished months, and for the month
-            # in progress only when explicitly enabled (off by default).
-            if _USE_MONTH_API_FOR_CURRENT_MONTH and (year, month) == (today.year, today.month):
-                try:
-                    month_data = await api_client.get_month_data(device_id, year, month)
-                    _validate_month_data(month_data, year, month)
-                    _validate_not_future(month_data, year, month, today)
-                    added, updated, month_has_data = merge_month(
-                        cache, year, month, month_data, today
-                    )
-                    handled_by_month_api = True
-                except _ParamsIgnoredError as err:
-                    _LOGGER.debug(
-                        "getMonthData did not answer %s-%02d (%s); using the per-day API",
-                        year, month, err,
-                    )
-                    stats["ignored_months"].append(f"{year}-{month:02d}")
-                except Exception as err:
-                    _LOGGER.debug(
-                        "getMonthData %s-%02d unusable (%s); using the per-day API",
-                        year, month, err,
-                    )
-                await asyncio.sleep(_REQUEST_DELAY_SECONDS)
-
-            if not handled_by_month_api:
-                cache, added, month_has_data, errors, gave_up = await _fill_month_from_daily_api(
-                    aggregator, cache, year, month, today
-                )
-                updated = 0
-                stats["days_from_daily_api"] += added
-                stats["errors"] += errors
-                year_errors += errors
-                if gave_up:
-                    aborted = True
+            fingerprint = _fingerprint(month_data)
+            if any(any(series) for series in fingerprint):
+                if fingerprint in seen:
+                    # The vendor docs warn this endpoint may serve only the
+                    # current month whatever is asked.  Writing that answer
+                    # into another month would fabricate history.
+                    other_year, other_month = seen[fingerprint]
                     _LOGGER.warning(
-                        "Lumentree day API stopped answering at %s-%02d; "
-                        "smart backfill will continue on the next run",
-                        year, month,
+                        "getMonthData returned identical data for %s-%02d and %s-%02d; "
+                        "the API appears to ignore the month. Stopping smart backfill -- "
+                        "use the backfill_all service for history instead.",
+                        year,
+                        month,
+                        other_year,
+                        other_month,
                     )
+                    aborted = True
+                    break
+                seen[fingerprint] = (year, month)
 
-            year_has_data = year_has_data or month_has_data
+            added, updated, has_data = merge_month(cache, year, month, month_data, today)
+            year_has_data = year_has_data or has_data
             if added or updated:
                 dirty = True
                 stats["days_added"] += added
                 stats["days_updated"] += updated
                 stats["months_processed"] += 1
-
-            if dirty:
-                await _persist_year(hass, device_id, year, cache)
-                dirty = False
-                year_written = True
-
-            if aborted:
-                break
+            await asyncio.sleep(_REQUEST_DELAY_SECONDS)
 
         if dirty:
-            await _persist_year(hass, device_id, year, cache)
-            year_written = True
-        if year_written:
+
+            def _persist(c: dict[str, Any] = cache, y: int = year) -> None:
+                cache_io.save_year(device_id, y, cache_io.recompute_aggregates(c))
+
+            await hass.async_add_executor_job(_persist)
             stats["years_processed"] += 1
         if year_has_data:
             stats["years_with_data"].append(year)
@@ -453,17 +300,23 @@ async def smart_backfill(
                 if result["status"] == "optimized":
                     _LOGGER.info(
                         "Optimized year %s: removed %s empty days, size reduction: %.1f%%",
-                        year, result["removed"], result["size_reduction_percent"],
+                        year,
+                        result["removed"],
+                        result["size_reduction_percent"],
                     )
         except Exception as err:
             _LOGGER.warning("Error optimizing cache: %s", err)
 
-    elapsed = time.monotonic() - start_time
+    elapsed = time.time() - start_time
     stats["elapsed_seconds"] = round(elapsed, 2)
     _LOGGER.info(
-        "Smart backfill completed: %s years written, %s months, %s days added "
-        "(%s from the day API), %s days updated, %s errors, took %.1fs",
-        stats["years_processed"], stats["months_processed"], stats["days_added"],
-        stats["days_from_daily_api"], stats["days_updated"], stats["errors"], elapsed,
+        "Smart backfill completed: %s years written, %s months, %s days added, "
+        "%s days updated, %s errors, took %.1fs",
+        stats["years_processed"],
+        stats["months_processed"],
+        stats["days_added"],
+        stats["days_updated"],
+        stats["errors"],
+        elapsed,
     )
     return stats
