@@ -89,6 +89,11 @@ _STRUCT_FORMATS: dict[str, struct.Struct] = {
     "unsigned_4": struct.Struct(">I"),  # Unsigned 32-bit big-endian
 }
 
+# True once "the battery reports no cell voltages" has been logged, so that a
+# battery without BMS data (every cell frame is empty) is reported once instead
+# of on every frame.  Reset as soon as valid cells show up again.
+_no_cells_logged = False
+
 
 def calculate_crc16_modbus(pb: bytes) -> int | None:
     """Calculate Modbus CRC16.
@@ -276,8 +281,12 @@ def _parse_battery_cells(db: bytes) -> dict[str, Any] | None:
         db: Data bytes containing cell information
 
     Returns:
-        Dictionary with cell info or None if parsing fails
+        Dictionary with cell info, or None when the frame holds no valid cell
+        voltage.  An empty frame is normal for a battery that does not talk to
+        the inverter (no BMS link, lead-acid, standby): it is not an error.
     """
+    global _no_cells_logged
+
     if _LOGGER.isEnabledFor(logging.DEBUG):
         _LOGGER.debug("Parsing %s cell bytes", len(db))
 
@@ -301,6 +310,7 @@ def _parse_battery_cells(db: bytes) -> dict[str, Any] | None:
                 max_voltage = max(max_voltage, cell_voltage)
 
     if num_cells > 0:
+        _no_cells_logged = False
         avg = round(total_voltage / num_cells, 3)
         diff = round(max_voltage - min_voltage, 3) if num_cells > 1 else 0.0
         result = {
@@ -314,9 +324,18 @@ def _parse_battery_cells(db: bytes) -> dict[str, Any] | None:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Parsed cells: %s", result)
         return result
+
+    # No valid cell in this frame.  Say so once, then stay quiet (debug) until
+    # cells have been seen again, so an empty-cell battery does not flood the log.
+    if not _no_cells_logged:
+        _no_cells_logged = True
+        _LOGGER.info(
+            "Battery reports no valid cell voltages (no BMS data); cell sensors "
+            "stay empty. Repeats are logged at debug level only."
+        )
     else:
-        _LOGGER.warning("No valid cells found")
-        return None
+        _LOGGER.debug("No valid cells found")
+    return None
 
 
 def _parse_extended_registers(rr, db: bytes, parsed_data: dict[str, Any]) -> None:
@@ -567,8 +586,13 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
 
         if is_cell_data:
             cell_result = _parse_battery_cells(db)
-            if cell_result:
-                parsed_data[KEY_BATTERY_CELL_INFO] = cell_result
+            if not cell_result:
+                # A cell frame without any valid cell voltage is not a parse
+                # failure (the battery simply reports no cell data), so return
+                # quietly instead of falling through to the "No data parsed"
+                # warning below.
+                return None
+            parsed_data[KEY_BATTERY_CELL_INFO] = cell_result
         else:
             # Parse main registers with optimized read helper (module-level function)
             rr = _make_reader(db, REG_ADDR)
