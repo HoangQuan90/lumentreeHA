@@ -1,4 +1,15 @@
-"""Smart backfill: fill the year caches a month at a time from getMonthData."""
+"""Smart backfill: fill the year caches from the Lumentree cloud, day by day.
+
+Every day is requested with the per-day API (``aggregator.fetch_day``), which
+always answers for the exact date it is asked about. The month endpoint
+(getMonthData) is NOT used by default: the cloud ignores its ``month``
+parameter for months that are over and returns the current month's numbers
+again, so it cannot be trusted to label values with the right date.
+
+Only days the cache is missing are requested, and today / future days are
+never requested. A restart with complete history therefore asks the cloud for
+nothing, and a normal night adds just yesterday.
+"""
 
 from __future__ import annotations
 
@@ -30,9 +41,18 @@ _DAY_METRICS = tuple(_MONTH_KEYS.values())
 # Ignore differences no larger than API rounding noise.
 _PARTIAL_DAY_TOLERANCE = 0.05
 _REQUEST_DELAY_SECONDS = 0.1
+_MAX_REQUEST_DELAY_SECONDS = 5.0
 
-# Stop asking getMonthData after this many consecutive "ignored month" answers,
-# so a cloud that ignores the month parameter is not hammered with requests.
+# Give up on a run after this many per-day requests fail back to back, so a
+# cloud that is down is not hammered. The next run (startup / 00:20) retries.
+_MAX_CONSECUTIVE_ERRORS = 5
+
+# getMonthData is only ever considered for the month in progress, and only when
+# this flag is turned on. Off by default: every value then comes from the
+# per-day API and is stored under exactly the date that was requested.
+_USE_MONTH_API_FOR_CURRENT_MONTH = False
+
+# Kept for backward compatibility with code that imports it; no longer used.
 _MAX_IGNORED_STREAK = 3
 
 
@@ -224,7 +244,7 @@ def merge_month(
 
 
 def _fingerprint(month_data: dict[str, Any]) -> tuple[tuple[float, ...], ...]:
-    """Stable fingerprint for detecting an endpoint that ignores month params."""
+    """Stable fingerprint of a month response (kept for backward compatibility)."""
     result: list[tuple[float, ...]] = []
     for key in _MONTH_KEYS:
         series = month_data.get(key)
@@ -238,14 +258,83 @@ def _fingerprint(month_data: dict[str, Any]) -> tuple[tuple[float, ...], ...]:
     return tuple(result)
 
 
+async def _fill_month_from_daily_api(
+    aggregator, cache: dict[str, Any], year: int, month: int, today: dt.date
+) -> tuple[dict[str, Any], int, bool, int, bool]:
+    """Fill the finished days of one month that the cache is missing.
+
+    Each missing day is requested with the per-day API, which always answers
+    for the date it was asked about. Days that are cached or already known to
+    be empty are skipped, and today / future days are never requested.
+
+    Returns (cache, days_added, month_has_data, errors, gave_up). ``gave_up``
+    is True when the cloud kept failing and the run should stop.
+    """
+    days_added = 0
+    month_has_data = False
+    errors = 0
+    consecutive_errors = 0
+    gave_up = False
+    delay = _REQUEST_DELAY_SECONDS
+    known_empty = set(cache.get("meta", {}).get("empty_dates", []))
+
+    for day in range(1, calendar.monthrange(year, month)[1] + 1):
+        date = dt.date(year, month, day)
+        if date >= today:
+            break
+        date_str = date.isoformat()
+
+        existing = cache.setdefault("daily", {}).get(date_str)
+        if existing is not None:
+            month_has_data = month_has_data or _has_data(existing)
+            continue
+        if date_str in known_empty:
+            continue
+
+        try:
+            fetched = await aggregator.fetch_day(date_str)
+        except Exception as err:
+            errors += 1
+            consecutive_errors += 1
+            delay = min(delay * 2, _MAX_REQUEST_DELAY_SECONDS)
+            _LOGGER.debug("Per-day request for %s failed: %s", date_str, err)
+            if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                gave_up = True
+                break
+            await asyncio.sleep(delay)
+            continue
+
+        consecutive_errors = 0
+        delay = _REQUEST_DELAY_SECONDS
+        values = {key: float(fetched.get(key, 0.0) or 0.0) for key in _DAY_METRICS}
+        if _has_data(values):
+            cache, _metrics = cache_io.update_daily(cache, date_str, values)
+            month_has_data = True
+        else:
+            cache_io.mark_empty(cache, date_str)
+        days_added += 1
+        await asyncio.sleep(delay)
+
+    return cache, days_added, month_has_data, errors, gave_up
+
+
+async def _persist_year(hass, device_id: str, year: int, cache: dict[str, Any]) -> None:
+    """Write a year cache to disk (blocking I/O runs in the executor)."""
+
+    def _write() -> None:
+        cache_io.save_year(device_id, year, cache_io.recompute_aggregates(cache))
+
+    await hass.async_add_executor_job(_write)
+
+
 async def smart_backfill(
     hass, aggregator, max_years: int = 10, optimize_cache: bool = True
 ) -> dict[str, Any]:
-    """Fill year caches from getMonthData, newest month first.
+    """Fill year caches, newest month first, one day at a time.
 
-    Months for which the cloud answers with another month's numbers are left
-    untouched and listed in ``stats["ignored_months"]`` ("YYYY-MM") so they can
-    be filled with the per-day backfill instead.
+    Each missing finished day is requested with the per-day API, so its values
+    are stored under the exact date asked for. Progress is written after every
+    month, so an interrupted run resumes where it stopped.
     """
     device_id = aggregator._device_id
     api_client: LumentreeHttpApiClient = aggregator._api
@@ -257,14 +346,13 @@ async def smart_backfill(
         "months_processed": 0,
         "days_added": 0,
         "days_updated": 0,
+        "days_from_daily_api": 0,
         "years_with_data": [],
         "errors": 0,
         "ignored_months": [],
     }
     _LOGGER.info("Starting smart backfill for device %s (max_years=%s)", device_id, max_years)
 
-    seen: dict[tuple[tuple[float, ...], ...], tuple[int, int]] = {}
-    ignored_streak = 0
     aborted = False
 
     for year in range(today.year, today.year - max(1, max_years), -1):
@@ -272,72 +360,78 @@ async def smart_backfill(
         dirty = drop_unfinished_days(cache, today) if year == today.year else False
         year_has_data = False
         year_errors = 0
+        year_written = False
         last_month = today.month if year == today.year else 12
 
         for month in range(last_month, 0, -1):
             if _month_is_complete(cache, year, month, today):
                 year_has_data = year_has_data or _month_has_cached_data(cache, year, month)
                 continue
-            try:
-                month_data = await api_client.get_month_data(device_id, year, month)
-                _validate_month_data(month_data, year, month)
-                _validate_not_future(month_data, year, month, today)
-                fingerprint = _fingerprint(month_data)
-                fingerprint_has_data = any(any(series) for series in fingerprint)
-                if fingerprint_has_data and fingerprint in seen:
-                    other_year, other_month = seen[fingerprint]
-                    raise _ParamsIgnoredError(
-                        f"identical to {other_year}-{other_month:02d}"
+
+            added = 0
+            updated = 0
+            month_has_data = False
+            handled_by_month_api = False
+
+            # getMonthData is never used for finished months, and for the month
+            # in progress only when explicitly enabled (off by default).
+            if _USE_MONTH_API_FOR_CURRENT_MONTH and (year, month) == (today.year, today.month):
+                try:
+                    month_data = await api_client.get_month_data(device_id, year, month)
+                    _validate_month_data(month_data, year, month)
+                    _validate_not_future(month_data, year, month, today)
+                    added, updated, month_has_data = merge_month(
+                        cache, year, month, month_data, today
                     )
-            except _ParamsIgnoredError as err:
-                # Keep the first (newer) month, skip this one, carry on: other
-                # months may still be answered correctly.
-                _LOGGER.debug(
-                    "getMonthData ignored the requested month %s-%02d: %s", year, month, err
+                    handled_by_month_api = True
+                except _ParamsIgnoredError as err:
+                    _LOGGER.debug(
+                        "getMonthData did not answer %s-%02d (%s); using the per-day API",
+                        year, month, err,
+                    )
+                    stats["ignored_months"].append(f"{year}-{month:02d}")
+                except Exception as err:
+                    _LOGGER.debug(
+                        "getMonthData %s-%02d unusable (%s); using the per-day API",
+                        year, month, err,
+                    )
+                await asyncio.sleep(_REQUEST_DELAY_SECONDS)
+
+            if not handled_by_month_api:
+                cache, added, month_has_data, errors, gave_up = await _fill_month_from_daily_api(
+                    aggregator, cache, year, month, today
                 )
-                stats["ignored_months"].append(f"{year}-{month:02d}")
-                year_errors += 1
-                ignored_streak += 1
-                if ignored_streak >= _MAX_IGNORED_STREAK:
-                    _LOGGER.warning(
-                        "getMonthData ignored the requested month %s times in a row; "
-                        "stopping monthly smart backfill for this run",
-                        ignored_streak,
-                    )
+                updated = 0
+                stats["days_from_daily_api"] += added
+                stats["errors"] += errors
+                year_errors += errors
+                if gave_up:
                     aborted = True
-                    break
-                continue
-            except Exception as err:
-                _LOGGER.warning("getMonthData %s-%02d failed or was incomplete: %s", year, month, err)
-                stats["errors"] += 1
-                year_errors += 1
-                continue
+                    _LOGGER.warning(
+                        "Lumentree day API stopped answering at %s-%02d; "
+                        "smart backfill will continue on the next run",
+                        year, month,
+                    )
 
-            ignored_streak = 0
-            if fingerprint_has_data:
-                seen[fingerprint] = (year, month)
-
-            try:
-                added, updated, has_data = merge_month(cache, year, month, month_data, today)
-            except Exception as err:
-                _LOGGER.warning("Could not merge getMonthData %s-%02d: %s", year, month, err)
-                stats["errors"] += 1
-                year_errors += 1
-                continue
-
-            year_has_data = year_has_data or has_data
+            year_has_data = year_has_data or month_has_data
             if added or updated:
                 dirty = True
                 stats["days_added"] += added
                 stats["days_updated"] += updated
                 stats["months_processed"] += 1
-            await asyncio.sleep(_REQUEST_DELAY_SECONDS)
+
+            if dirty:
+                await _persist_year(hass, device_id, year, cache)
+                dirty = False
+                year_written = True
+
+            if aborted:
+                break
 
         if dirty:
-            def _persist(c: dict[str, Any] = cache, y: int = year) -> None:
-                cache_io.save_year(device_id, y, cache_io.recompute_aggregates(c))
-
-            await hass.async_add_executor_job(_persist)
+            await _persist_year(hass, device_id, year, cache)
+            year_written = True
+        if year_written:
             stats["years_processed"] += 1
         if year_has_data:
             stats["years_with_data"].append(year)
@@ -347,13 +441,6 @@ async def smart_backfill(
         if year < today.year and not year_has_data and year_errors == 0:
             _LOGGER.info("No data at all in %s; history starts after it", year)
             break
-
-    if stats["ignored_months"]:
-        _LOGGER.warning(
-            "getMonthData did not honour the requested month for %s (left untouched). "
-            "Use the per-day backfill (lumentree.backfill_all) to fill them.",
-            ", ".join(stats["ignored_months"]),
-        )
 
     if optimize_cache and stats["years_with_data"]:
         try:
@@ -374,9 +461,9 @@ async def smart_backfill(
     elapsed = time.monotonic() - start_time
     stats["elapsed_seconds"] = round(elapsed, 2)
     _LOGGER.info(
-        "Smart backfill completed: %s years written, %s months, %s days added, "
-        "%s days updated, %s errors, %s ignored months, took %.1fs",
+        "Smart backfill completed: %s years written, %s months, %s days added "
+        "(%s from the day API), %s days updated, %s errors, took %.1fs",
         stats["years_processed"], stats["months_processed"], stats["days_added"],
-        stats["days_updated"], stats["errors"], len(stats["ignored_months"]), elapsed,
+        stats["days_from_daily_api"], stats["days_updated"], stats["errors"], elapsed,
     )
     return stats
