@@ -31,9 +31,13 @@ _DAY_METRICS = tuple(_MONTH_KEYS.values())
 _PARTIAL_DAY_TOLERANCE = 0.05
 _REQUEST_DELAY_SECONDS = 0.1
 
+# Stop asking getMonthData after this many consecutive "ignored month" answers,
+# so a cloud that ignores the month parameter is not hammered with requests.
+_MAX_IGNORED_STREAK = 3
+
 
 class _ParamsIgnoredError(Exception):
-    """getMonthData answered a past month with another month's numbers."""
+    """getMonthData answered a month with another month's numbers."""
 
 
 def _validate_month_data(
@@ -91,6 +95,29 @@ def _day_values(month_data: dict[str, Any], day: int) -> dict[str, float]:
             value = abs(value)
         values[cache_key] = value
     return values
+
+
+def _validate_not_future(
+    month_data: dict[str, Any], year: int, month: int, today: dt.date
+) -> None:
+    """Reject a current-month answer that reports energy for future days.
+
+    The current month is always merged and its API values are authoritative, so
+    a wrong answer here would overwrite good cache data. Days after today cannot
+    have production; if they do, the API answered a different month. One day of
+    grace covers a cloud clock that is ahead of Home Assistant's timezone.
+    """
+    if (year, month) != (today.year, today.month):
+        return
+    last_ok = today + dt.timedelta(days=1)
+    for day in range(1, calendar.monthrange(year, month)[1] + 1):
+        if dt.date(year, month, day) <= last_ok:
+            continue
+        values = _day_values(month_data, day)
+        if any(value > _PARTIAL_DAY_TOLERANCE for value in values.values()):
+            raise _ParamsIgnoredError(
+                f"{year}-{month:02d} reports energy for future day {day}"
+            )
 
 
 def _has_data(values: dict[str, Any]) -> bool:
@@ -214,12 +241,17 @@ def _fingerprint(month_data: dict[str, Any]) -> tuple[tuple[float, ...], ...]:
 async def smart_backfill(
     hass, aggregator, max_years: int = 10, optimize_cache: bool = True
 ) -> dict[str, Any]:
-    """Fill year caches from getMonthData, newest month first."""
+    """Fill year caches from getMonthData, newest month first.
+
+    Months for which the cloud answers with another month's numbers are left
+    untouched and listed in ``stats["ignored_months"]`` ("YYYY-MM") so they can
+    be filled with the per-day backfill instead.
+    """
     device_id = aggregator._device_id
     api_client: LumentreeHttpApiClient = aggregator._api
     today = today_in_ha(hass)
 
-    start_time = time.time()
+    start_time = time.monotonic()
     stats: dict[str, Any] = {
         "years_processed": 0,
         "months_processed": 0,
@@ -227,10 +259,12 @@ async def smart_backfill(
         "days_updated": 0,
         "years_with_data": [],
         "errors": 0,
+        "ignored_months": [],
     }
     _LOGGER.info("Starting smart backfill for device %s (max_years=%s)", device_id, max_years)
 
     seen: dict[tuple[tuple[float, ...], ...], tuple[int, int]] = {}
+    ignored_streak = 0
     aborted = False
 
     for year in range(today.year, today.year - max(1, max_years), -1):
@@ -247,23 +281,40 @@ async def smart_backfill(
             try:
                 month_data = await api_client.get_month_data(device_id, year, month)
                 _validate_month_data(month_data, year, month)
+                _validate_not_future(month_data, year, month, today)
+                fingerprint = _fingerprint(month_data)
+                fingerprint_has_data = any(any(series) for series in fingerprint)
+                if fingerprint_has_data and fingerprint in seen:
+                    other_year, other_month = seen[fingerprint]
+                    raise _ParamsIgnoredError(
+                        f"identical to {other_year}-{other_month:02d}"
+                    )
+            except _ParamsIgnoredError as err:
+                # Keep the first (newer) month, skip this one, carry on: other
+                # months may still be answered correctly.
+                _LOGGER.debug(
+                    "getMonthData ignored the requested month %s-%02d: %s", year, month, err
+                )
+                stats["ignored_months"].append(f"{year}-{month:02d}")
+                year_errors += 1
+                ignored_streak += 1
+                if ignored_streak >= _MAX_IGNORED_STREAK:
+                    _LOGGER.warning(
+                        "getMonthData ignored the requested month %s times in a row; "
+                        "stopping monthly smart backfill for this run",
+                        ignored_streak,
+                    )
+                    aborted = True
+                    break
+                continue
             except Exception as err:
                 _LOGGER.warning("getMonthData %s-%02d failed or was incomplete: %s", year, month, err)
                 stats["errors"] += 1
                 year_errors += 1
                 continue
 
-            fingerprint = _fingerprint(month_data)
-            if any(any(series) for series in fingerprint):
-                if fingerprint in seen:
-                    other_year, other_month = seen[fingerprint]
-                    _LOGGER.warning(
-                        "getMonthData returned identical data for %s-%02d and %s-%02d; "
-                        "the API may be ignoring the requested month. Stopping smart backfill.",
-                        year, month, other_year, other_month,
-                    )
-                    aborted = True
-                    break
+            ignored_streak = 0
+            if fingerprint_has_data:
                 seen[fingerprint] = (year, month)
 
             try:
@@ -297,6 +348,13 @@ async def smart_backfill(
             _LOGGER.info("No data at all in %s; history starts after it", year)
             break
 
+    if stats["ignored_months"]:
+        _LOGGER.warning(
+            "getMonthData did not honour the requested month for %s (left untouched). "
+            "Use the per-day backfill (lumentree.backfill_all) to fill them.",
+            ", ".join(stats["ignored_months"]),
+        )
+
     if optimize_cache and stats["years_with_data"]:
         try:
             from . import cache_optimizer
@@ -313,12 +371,12 @@ async def smart_backfill(
         except Exception as err:
             _LOGGER.warning("Error optimizing cache: %s", err)
 
-    elapsed = time.time() - start_time
+    elapsed = time.monotonic() - start_time
     stats["elapsed_seconds"] = round(elapsed, 2)
     _LOGGER.info(
         "Smart backfill completed: %s years written, %s months, %s days added, "
-        "%s days updated, %s errors, took %.1fs",
+        "%s days updated, %s errors, %s ignored months, took %.1fs",
         stats["years_processed"], stats["months_processed"], stats["days_added"],
-        stats["days_updated"], stats["errors"], elapsed,
+        stats["days_updated"], stats["errors"], len(stats["ignored_months"]), elapsed,
     )
     return stats
